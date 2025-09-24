@@ -20,3 +20,4 @@ out/
 # local files
 screenshots/
 .env.local
+.env.local
