@@ -1,223 +1,147 @@
+// src/app/reports/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import type { Route } from 'next';
+import { fetchReportsByPatient, type Row } from '@/lib/reportQueries';
 
-import { collection, getDocs, orderBy, query, where, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { toEditReportRoute, toNewReportRoute } from '@/lib/routes';
-
-type Report = {
-  id: string;
-  patientId: string;
-  date: string;     // YYYY-MM-DD で保存している想定（Date保管なら適宜変換）
-  staff?: string;
-  finding?: string; // 所見など、実際のフィールド名に合わせて調整可
-  guidance?: string;
-  vital?: string;
-  nextPlan?: string;
-};
+// 日付入力(YYYY-MM-DD)ヘルパ
+function toInputDate(d?: Date) {
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
 
 export default function ReportsPage() {
-  const router = useRouter();
-
-  // フィルタ UI 状態
+  // フィルタ
   const [patientId, setPatientId] = useState<string>('');
-  const [dateFrom, setDateFrom] = useState<string>(''); // YYYY-MM-DD
-  const [dateTo, setDateTo] = useState<string>('');     // YYYY-MM-DD
+  const [fromDate, setFromDate] = useState<string>(toInputDate(new Date()));
+  const [toDate, setToDate] = useState<string>(toInputDate(new Date()));
 
-  // データ状態
-  const [loading, setLoading] = useState<boolean>(false);
-  const [reports, setReports] = useState<Report[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // 一覧データ
+  const [reports, setReports] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
-  // Firestore クエリを組み立てる（必要に応じて where を追加）
-  const qRef = useMemo(() => {
-    const base = collection(db, 'reports'); // ← コレクション名が違う場合は修正
-    const conds: any[] = [];
-
-    if (patientId.trim()) {
-      conds.push(where('patientId', '==', patientId.trim()));
-    }
-    // 日付は YYYY-MM-DD 文字列で保存している想定
-    if (dateFrom) conds.push(where('date', '>=', dateFrom));
-    if (dateTo)   conds.push(where('date', '<=', dateTo));
-
-    // 並び順：最新日付が上に来るように
-    conds.push(orderBy('date', 'desc'));
-
-    return query(base, ...conds);
-  }, [patientId, dateFrom, dateTo]);
-
-  const fetchReports = async () => {
+  const onSearch = async () => {
+    setLoading(true);
+    setMessage(null);
     try {
-      setLoading(true);
-      setError(null);
-      const snap = await getDocs(qRef);
-      const rows: Report[] = snap.docs.map((d) => {
-        const v = d.data() as any;
-        // 日付が Timestamp の場合は文字列に変換（保存形式に合わせて調整）
-        let dateStr = v.date;
-        if (v.date instanceof Timestamp) {
-          const dt = v.date.toDate();
-          const y = dt.getFullYear();
-          const m = String(dt.getMonth() + 1).padStart(2, '0');
-          const d2 = String(dt.getDate()).padStart(2, '0');
-          dateStr = `${y}-${m}-${d2}`;
-        }
-        return {
-          id: d.id,
-          patientId: v.patientId ?? '',
-          date: dateStr ?? '',
-          staff: v.staff ?? '',
-          finding: v.finding ?? '',
-          guidance: v.guidance ?? '',
-          vital: v.vital ?? '',
-          nextPlan: v.nextPlan ?? '',
-        };
-      });
+      const rows = await fetchReportsByPatient(
+        patientId.trim(),
+        fromDate || undefined,
+        toDate || undefined
+      );
       setReports(rows);
-    } catch (e: any) {
+      if (rows.length === 0) setMessage('データがありません');
+    } catch (e) {
       console.error(e);
-      setError(e?.message ?? '取得に失敗しました');
+      setMessage('検索に失敗しました');
     } finally {
       setLoading(false);
     }
   };
 
-  // 初回ロード（お好みで外してもOK）
+  // 初回は空のまま（必要ならここで onSearch()）
   useEffect(() => {
-    fetchReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // onSearch();
   }, []);
 
-  // 編集遷移（Typed Routes）
-  const goEdit = (r: Report) => {
-    const href: Route = toEditReportRoute(r.id, r.patientId);
-    router.push(href);
-  };
-
-  // 新規作成（患者IDが入っていればクエリで渡す）
-  const goNew = () => {
-    const href: Route = toNewReportRoute(patientId.trim() || undefined);
-    router.push(href);
-  };
-
   return (
-    <main className="container" style={{ padding: '24px' }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <h1 style={{ marginRight: 'auto' }}>在宅報告書</h1>
-        <Link className="btn" href={'/' as Route}>Home</Link>
-        <button className="btn" onClick={goNew}>新規作成</button>
-      </header>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">在宅報告書</h1>
 
-      <section style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr 1fr 120px' }}>
-        <div>
-          <label>患者ID</label>
+      {/* 検索フォーム */}
+      <div className="grid gap-3 sm:grid-cols-[160px_200px_200px_auto] items-end">
+        <label className="grid gap-1">
+          <span className="text-sm text-zinc-400">患者ID</span>
           <input
+            className="input"
             value={patientId}
             onChange={(e) => setPatientId(e.target.value)}
             placeholder="0001 など"
-            className="input"
           />
-        </div>
-        <div>
-          <label>期間（開始）</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="input"
-          />
-        </div>
-        <div>
-          <label>期間（終了）</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="input"
-          />
-        </div>
-        <div style={{ alignSelf: 'end' }}>
-          <button className="btn primary" onClick={fetchReports} disabled={loading}>
-            {loading ? '検索中…' : '検索'}
-          </button>
-        </div>
-      </section>
+        </label>
 
-      {error && (
-        <p style={{ color: 'crimson', marginTop: 12 }}>
-          {error}
-        </p>
-      )}
+        <label className="grid gap-1">
+          <span className="text-sm text-zinc-400">期間（開始）</span>
+          <input
+            className="input"
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+        </label>
 
-      <div style={{ marginTop: 20, overflowX: 'auto' }}>
-        <table className="table" style={{ minWidth: 880 }}>
+        <label className="grid gap-1">
+          <span className="text-sm text-zinc-400">期間（終了）</span>
+          <input
+            className="input"
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+          />
+        </label>
+
+        <button className="btn primary h-10" onClick={onSearch} disabled={loading}>
+          {loading ? '検索中…' : '検索'}
+        </button>
+      </div>
+
+      {/* 一覧テーブル */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
           <thead>
-            <tr>
-              <th style={{ width: 120 }}>実施日</th>
-              <th style={{ width: 120 }}>患者ID</th>
-              <th style={{ width: 120 }}>担当</th>
-              <th>所見</th>
-              <th style={{ width: 100 }}>操作</th>
+            <tr className="text-left border-b border-zinc-800">
+              <th className="px-3 py-2">実施日</th>
+              <th className="px-3 py-2">患者ID</th>
+              <th className="px-3 py-2">担当</th>
+              <th className="px-3 py-2">所見</th>
+              <th className="px-3 py-2">操作</th>
             </tr>
           </thead>
           <tbody>
-            {reports.length === 0 && !loading && (
-              <tr>
-                <td colSpan={5} style={{ textAlign: 'center', color: '#aaa', padding: 24 }}>
-                  データがありません
-                </td>
-              </tr>
-            )}
             {reports.map((r) => (
-              <tr key={r.id}>
-                <td>{r.date}</td>
-                <td>{r.patientId}</td>
-                <td>{r.staff}</td>
-                <td style={{ whiteSpace: 'pre-wrap' }}>{r.finding ?? ''}</td>
-                <td>
-                  <button className="btn" onClick={() => goEdit(r)}>編集</button>
+              <tr key={r.id} className="border-b border-zinc-900/50">
+                <td className="px-3 py-2 whitespace-pre-wrap">{r.date}</td>
+                <td className="px-3 py-2">{r.patientId}</td>
+                <td className="px-3 py-2">{r.staff}</td>
+                <td className="px-3 py-2">
+                  <div className="whitespace-pre-wrap text-zinc-300">{r.findings}</div>
+                  {r.vital && (
+                    <div className="mt-1 text-xs text-zinc-500">バイタル: {r.vital}</div>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {/* ← ここがポイント：オブジェクト形式で Typed Routes に準拠 */}
+                  <Link
+                    href={{
+                      pathname: `/reports/${r.id}/edit` as `/reports/${string}/edit`,
+                      query: { pid: r.patientId },
+                    }}
+                    className="rounded bg-zinc-700 px-2 py-1 text-xs hover:bg-zinc-600"
+                  >
+                    編集
+                  </Link>
                 </td>
               </tr>
             ))}
+
+            {reports.length === 0 && !loading && (
+              <tr>
+                <td colSpan={5} style={{ padding: '12px 16px', textAlign: 'center', color: '#888' }}>
+                  {message ?? 'データがありません'}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      <style jsx>{`
-        .btn {
-          border: 1px solid #555;
-          padding: 6px 12px;
-          border-radius: 6px;
-          background: transparent;
-        }
-        .btn.primary {
-          background: #1677ff;
-          color: #fff;
-          border-color: #1677ff;
-        }
-        .input {
-          width: 100%;
-          padding: 6px 8px;
-          border: 1px solid #555;
-          border-radius: 6px;
-          background: transparent;
-          color: inherit;
-        }
-        .table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        .table th, .table td {
-          border-bottom: 1px solid #333;
-          padding: 8px 10px;
-          text-align: left;
-        }
-      `}</style>
-    </main>
+      {/* Excel エクスポートを使うならここにボタン（必要に応じて） */}
+      {/* <ExportXlsxButton reports={reports} /> */}
+    </div>
   );
 }
