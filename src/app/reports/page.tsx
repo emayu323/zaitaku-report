@@ -141,4 +141,83 @@ export default function ReportsPage() {
             className="input"
           />
         </div>
-        <div style={{ alignSelf: 'end' }
+        <div style={{ alignSelf: 'end' }}>
+          <button className="btn primary" onClick={fetchReports} disabled={loading}>
+            {loading ? '検索中…' : '検索'}
+          </button>
+        </div>
+      </section>
+
+      {error && (
+        <p style={{ color: 'crimson', marginTop: 12 }}>
+          {error}
+        </p>
+      )}
+
+      <div style={{ marginTop: 20, overflowX: 'auto' }}>
+        <table className="table" style={{ minWidth: 880 }}>
+          <thead>
+            <tr>
+              <th style={{ width: 120 }}>実施日</th>
+              <th style={{ width: 120 }}>患者ID</th>
+              <th style={{ width: 120 }}>担当</th>
+              <th>所見</th>
+              <th style={{ width: 100 }}>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.length === 0 && !loading && (
+              <tr>
+                <td colSpan={5} style={{ textAlign: 'center', color: '#aaa', padding: 24 }}>
+                  データがありません
+                </td>
+              </tr>
+            )}
+            {reports.map((r) => (
+              <tr key={r.id}>
+                <td>{r.date}</td>
+                <td>{r.patientId}</td>
+                <td>{r.staff}</td>
+                <td style={{ whiteSpace: 'pre-wrap' }}>{r.finding ?? ''}</td>
+                <td>
+                  <button className="btn" onClick={() => goEdit(r)}>編集</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <style jsx>{`
+        .btn {
+          border: 1px solid #555;
+          padding: 6px 12px;
+          border-radius: 6px;
+          background: transparent;
+        }
+        .btn.primary {
+          background: #1677ff;
+          color: #fff;
+          border-color: #1677ff;
+        }
+        .input {
+          width: 100%;
+          padding: 6px 8px;
+          border: 1px solid #555;
+          border-radius: 6px;
+          background: transparent;
+          color: inherit;
+        }
+        .table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .table th, .table td {
+          border-bottom: 1px solid #333;
+          padding: 8px 10px;
+          text-align: left;
+        }
+      `}</style>
+    </main>
+  );
+}
