@@ -1,0 +1,30 @@
+{
+  "name": "zaitaku-report-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "prepare": "echo \"No prepare step\""
+  },
+  "dependencies": {
+    "firebase": "^10.14.0",
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8",
+    "clsx": "^2.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.11",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "eslint": "^9.9.0",
+    "eslint-config-next": "14.2.5",
+    "typescript": "^5.5.4"
+  }
+}

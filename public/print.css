@@ -1,0 +1,6 @@
+/* 印刷用最小レイアウト：余白とフォント */
+@page { margin: 14mm; }
+body { font-size: 12pt; }
+h1, h2, h3 { margin: 0 0 8px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { border: 1px solid #000; padding: 6px; }
