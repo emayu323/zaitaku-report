@@ -8,7 +8,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "prepare": "echo \"No prepare step\""
+    "prepare": "echo \"No prepare step\"",
+    "fb:rules": "firebase deploy --only firestore:rules",
+    "fb:indexes": "firebase deploy --only firestore:indexes",
+    "fb:deploy": "firebase deploy --only firestore:rules,firestore:indexes",
+    "fb:emu": "firebase emulators:start --only firestore"
   },
   "dependencies": {
     "firebase": "^10.14.0",
