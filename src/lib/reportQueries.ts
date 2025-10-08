@@ -1,104 +1,60 @@
+// src/lib/reportQueries.ts
 import {
-  query,
-  where,
-  orderBy,
   collection,
   getDocs,
-  type QueryConstraint,
-  type Timestamp,
+  orderBy,
+  query,
+  Timestamp,
+  QueryConstraint,
+  DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Report } from './types';
 
-// ここを「展開後に id を足す」型に
-export type Row = Omit<Report, 'id'> & { id: string };
+export type Report = {
+  id: string;
+  patientId?: string;
+  date: number;        // ms (clientで扱いやすくする)
+  staff?: string;
+  findings?: string;
+  createdAt?: number;
+  updatedAt?: number;
+};
 
-type RawReport = Record<string, unknown>;
+// Timestamp/Date/number を ms に寄せる
+const toMillis = (v: unknown): number => {
+  if (v == null) return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (v instanceof Timestamp) return v.toMillis();
+  if (v instanceof Date) return v.getTime();
+  // Firestore Emulator の文字列日付なども一応ケア
+  const parsed = new Date(String(v)).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
-// serverTimestamp() 結果などを number (ms) に寄せる
-function toMillis(value: unknown): number {
-  if (value == null) return 0;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  const ts = value as Timestamp | { seconds?: number; toMillis?: () => number };
-  if (typeof ts?.toMillis === 'function') return ts.toMillis();
-  if (typeof ts?.seconds === 'number') return ts.seconds * 1000;
-  return 0;
-}
+const normalize = (id: string, data: DocumentData): Report => ({
+  id,
+  patientId: data.patientId ?? undefined,
+  date: toMillis(data.date),
+  staff: data.staff ?? undefined,
+  findings: data.findings ?? undefined,
+  createdAt: toMillis(data.createdAt),
+  updatedAt: toMillis(data.updatedAt),
+});
 
-// 新旧フィールド差異を吸収して Row に正規化
-function normalizeReport(id: string, data: RawReport): Row {
-  return {
-    id,
-    patientId: String(data.patientId ?? ''),
-    date: String(data.date ?? ''),
-    staff: String(data.staff ?? data.assessor ?? ''),
-    findings: String(data.findings ?? data.notes ?? ''),
-    instruction: String(data.instruction ?? data.guidance ?? ''),
-    vital: String(data.vital ?? data.vitals ?? ''),
-    createdAt: toMillis(data.createdAt),
-    updatedAt: toMillis(data.updatedAt),
-  };
-}
-
-async function fetchFromSubcollection(
+/**
+ * patients/{patientId}/reports を検索
+ * 並び順はこの関数内で date の降順に統一
+ */
+export const fetchReportsByPatient = async (
   patientId: string,
-  clauses: QueryConstraint[]
-): Promise<Row[]> {
-  try {
-    const colRef = collection(db, 'patients', patientId, 'reports');
-    const snap = await getDocs(query(colRef, ...clauses, orderBy('date', 'desc')));
-    return snap.docs.map((docSnap) => normalizeReport(docSnap.id, docSnap.data()));
-  } catch (err) {
-    console.error('fetchReportsByPatient subcollection error', err);
-    return [];
-  }
-}
+  clauses: QueryConstraint[] = []
+): Promise<Report[]> => {
+  // サブコレクション（患者ごと）
+  const colRef = collection(db, 'patients', patientId, 'reports');
 
-async function fetchFromLegacyCollection(
-  patientId: string,
-  clauses: QueryConstraint[]
-): Promise<Row[]> {
-  try {
-    const colRef = collection(db, 'reports');
-    const legacyClauses = [where('patientId', '==', patientId), ...clauses];
-    const snap = await getDocs(query(colRef, ...legacyClauses, orderBy('date', 'desc')));
-    return snap.docs.map((docSnap) => normalizeReport(docSnap.id, docSnap.data()));
-  } catch (err) {
-    // 旧コレクション用なので失敗しても致命的ではない
-    console.warn('fetchReportsByPatient legacy collection error', err);
-    return [];
-  }
-}
+  // 重要：orderBy はここで一元管理（ページ側では付けない）
+  const q = query(colRef, ...clauses, orderBy('date', 'desc'));
+  const snap = await getDocs(q);
 
-// 患者ID＋日付範囲で一覧取得（YYYY-MM-DD の文字列）
-export async function fetchReportsByPatient(
-  patientId: string,
-  from?: string,
-  to?: string
-): Promise<Row[]> {
-  if (!patientId) return [];
-
-  const clauses: QueryConstraint[] = [];
-  if (from) clauses.push(where('date', '>=', from));
-  if (to) clauses.push(where('date', '<=', to));
-
-  const [subRows, legacyRows] = await Promise.all([
-    fetchFromSubcollection(patientId, clauses),
-    fetchFromLegacyCollection(patientId, clauses),
-  ]);
-
-  const merged = [...subRows];
-  const knownIds = new Set(merged.map((r) => r.id));
-  for (const row of legacyRows) {
-    if (!knownIds.has(row.id)) merged.push(row);
-  }
-
-  return merged.sort((a, b) => {
-    if (a.date === b.date) return b.updatedAt - a.updatedAt;
-    return a.date < b.date ? 1 : -1;
-  });
-}
+  return snap.docs.map((d) => normalize(d.id, d.data()));
+};
