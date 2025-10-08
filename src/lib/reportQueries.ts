@@ -5,12 +5,74 @@ import {
   collection,
   getDocs,
   type QueryConstraint,
+  type Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Report } from './types';
 
 // ここを「展開後に id を足す」型に
 export type Row = Omit<Report, 'id'> & { id: string };
+
+type RawReport = Record<string, unknown>;
+
+// serverTimestamp() 結果などを number (ms) に寄せる
+function toMillis(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  const ts = value as Timestamp | { seconds?: number; toMillis?: () => number };
+  if (typeof ts?.toMillis === 'function') return ts.toMillis();
+  if (typeof ts?.seconds === 'number') return ts.seconds * 1000;
+  return 0;
+}
+
+// 新旧フィールド差異を吸収して Row に正規化
+function normalizeReport(id: string, data: RawReport): Row {
+  return {
+    id,
+    patientId: String(data.patientId ?? ''),
+    date: String(data.date ?? ''),
+    staff: String(data.staff ?? data.assessor ?? ''),
+    findings: String(data.findings ?? data.notes ?? ''),
+    instruction: String(data.instruction ?? data.guidance ?? ''),
+    vital: String(data.vital ?? data.vitals ?? ''),
+    createdAt: toMillis(data.createdAt),
+    updatedAt: toMillis(data.updatedAt),
+  };
+}
+
+async function fetchFromSubcollection(
+  patientId: string,
+  clauses: QueryConstraint[]
+): Promise<Row[]> {
+  try {
+    const colRef = collection(db, 'patients', patientId, 'reports');
+    const snap = await getDocs(query(colRef, ...clauses, orderBy('date', 'desc')));
+    return snap.docs.map((docSnap) => normalizeReport(docSnap.id, docSnap.data()));
+  } catch (err) {
+    console.error('fetchReportsByPatient subcollection error', err);
+    return [];
+  }
+}
+
+async function fetchFromLegacyCollection(
+  patientId: string,
+  clauses: QueryConstraint[]
+): Promise<Row[]> {
+  try {
+    const colRef = collection(db, 'reports');
+    const legacyClauses = [where('patientId', '==', patientId), ...clauses];
+    const snap = await getDocs(query(colRef, ...legacyClauses, orderBy('date', 'desc')));
+    return snap.docs.map((docSnap) => normalizeReport(docSnap.id, docSnap.data()));
+  } catch (err) {
+    // 旧コレクション用なので失敗しても致命的ではない
+    console.warn('fetchReportsByPatient legacy collection error', err);
+    return [];
+  }
+}
 
 // 患者ID＋日付範囲で一覧取得（YYYY-MM-DD の文字列）
 export async function fetchReportsByPatient(
@@ -20,23 +82,23 @@ export async function fetchReportsByPatient(
 ): Promise<Row[]> {
   if (!patientId) return [];
 
-  try {
-    // 患者ごとのサブコレクションから読み出す（書き込み先と揃える）
-    const colRef = collection(db, 'patients', patientId, 'reports');
+  const clauses: QueryConstraint[] = [];
+  if (from) clauses.push(where('date', '>=', from));
+  if (to) clauses.push(where('date', '<=', to));
 
-    const clauses: QueryConstraint[] = [];
-    if (from) clauses.push(where('date', '>=', from));
-    if (to) clauses.push(where('date', '<=', to));
+  const [subRows, legacyRows] = await Promise.all([
+    fetchFromSubcollection(patientId, clauses),
+    fetchFromLegacyCollection(patientId, clauses),
+  ]);
 
-    const q = query(colRef, ...clauses, orderBy('date', 'desc'), orderBy('__name__'));
-
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => {
-      const data = d.data() as Omit<Report, 'id'>;
-      return { ...data, id: d.id }; // 先に展開 → 最後に id を足す（重複警告を回避）
-    });
-  } catch (e) {
-    console.error('fetchReportsByPatient error', e);
-    return [];
+  const merged = [...subRows];
+  const knownIds = new Set(merged.map((r) => r.id));
+  for (const row of legacyRows) {
+    if (!knownIds.has(row.id)) merged.push(row);
   }
+
+  return merged.sort((a, b) => {
+    if (a.date === b.date) return b.updatedAt - a.updatedAt;
+    return a.date < b.date ? 1 : -1;
+  });
 }
