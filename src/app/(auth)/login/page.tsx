@@ -1,6 +1,9 @@
 // src/app/(auth)/login/page.tsx
 'use client';
 
+export const dynamic = 'force-dynamic'; // ← 追加
+export const revalidate = 0;             // ← 追加
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
