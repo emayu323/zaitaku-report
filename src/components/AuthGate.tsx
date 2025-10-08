@@ -1,40 +1,28 @@
+// src/components/AuthGate.tsx
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { getAuthClient } from '@/lib/firebase';
 
-export default function AuthGate({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+type Props = {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+};
+
+/**
+ * 子要素を表示する前に Auth の初期化完了を待つゲート
+ * サインイン状態は問わず、状態決定(onAuthStateChanged)まで待つ
+ */
+export default function AuthGate({ children, fallback = null }: Props) {
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
+    const auth = getAuthClient();
+    const unsub = onAuthStateChanged(auth, () => setReady(true));
     return () => unsub();
   }, []);
 
-  if (loading) {
-    return <div className="container">読み込み中…</div>;
-  }
-
-  if (!user) {
-    return (
-      <div className="container">
-        <div className="header">
-          <h1>在宅報告書</h1>
-          <div className="nav">
-            <Link className="btn" href="/login">ログイン</Link>
-
-          </div>
-        </div>
-        <p>このページを見るには、先にログインしてください。</p>
-      </div>
-    );
-  }
-
+  if (!ready) return <>{fallback}</>;
   return <>{children}</>;
 }

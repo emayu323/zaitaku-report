@@ -1,6 +1,7 @@
 // src/lib/firebase.ts
-import { initializeApp, getApps } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -11,13 +12,34 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 };
 
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+// App / DB はどこからでも使える
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// ローカル開発時は Firestore Emulator へ接続
-if (typeof window !== 'undefined' && location.hostname === 'localhost') {
-  // 既に接続済みでも二重接続にはならない
-  try {
-    connectFirestoreEmulator(db, '127.0.0.1', 8080);
-  } catch {}
+/**
+ * Auth は「クライアント専用」
+ * 直接の export を避け、クライアントでのみ実体を作る getter を用意
+ */
+let _auth: Auth | null = null;
+
+export function getAuthClient(): Auth {
+  if (typeof window === 'undefined') {
+    // Server Components で誤って呼ぶと気づけるようにする
+    throw new Error('getAuthClient() must be called on the client');
+  }
+
+  if (!_auth) {
+    _auth = getAuth(app);
+
+    // ローカル開発時のみエミュレータに接続
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      try {
+        connectAuthEmulator(_auth, 'http://127.0.0.1:9099');
+      } catch {}
+      try {
+        connectFirestoreEmulator(db, '127.0.0.1', 8080);
+      } catch {}
+    }
+  }
+  return _auth;
 }
