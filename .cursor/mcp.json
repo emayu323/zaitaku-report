@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "firebase": {
+      "command": "npx",
+      "args": ["-y", "firebase-tools@latest", "mcp",
+        "--dir", "/Users/emayusuke/aoi-zaikoreport/zaitaku-report",
+        "--only", "firestore,auth,storage"
+      ]
+    }
+  }
+}
